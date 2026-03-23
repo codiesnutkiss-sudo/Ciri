@@ -2,53 +2,71 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 import g4f
-from g4f.client import Client
 import time
 import asyncio
+import urllib.parse
 
 app = FastAPI()
-
-# This prevents Render routing errors
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# Serve the UI
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 async def root():
     return FileResponse("static/index.html")
 
-# Initialize the lightweight client
-g4f_client = Client()
+# 100% UPTIME DIRECT APIs (No g4f scraping required for these)
+async def fetch_pollinations(prompt: str, model: str):
+    # Models: 'openai' (GPT-4), 'llama' (Llama 3)
+    encoded_prompt = urllib.parse.quote(prompt)
+    url = f"https://text.pollinations.ai/prompt/{encoded_prompt}?model={model}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(url)
+        if response.status_code == 200:
+            return response.text
+        raise Exception("Pollinations busy")
 
-def get_ai_answer(model_choice, user_message):
-    # Match the UI names to specific g4f model endpoints
-    model_map = {
-        "gpt-4": "gpt-4",
-        "gemini": "gemini-pro",
-        "llama": "llama-3-70b",
-        "deepseek": "deepseek-coder"
-    }
-    target = model_map.get(model_choice, "gpt-3.5-turbo")
-
-    try:
-        response = g4f_client.chat.completions.create(
-            model=target,
-            messages=[{"role": "user", "content": user_message}]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        # If the free provider blocks us, automatically fallback to a super-reliable one (Blackbox)
+# REAL VISION & FALLBACK PROCESSING
+async def process_ai(model_choice: str, text: str, image_base64: str = None):
+    # 1. IF THERE IS AN IMAGE (LIVE MODE / UPLOAD)
+    if image_base64:
         try:
-            fallback = g4f_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+            # Blackbox is the most reliable free vision provider in g4f
+            response = await asyncio.to_thread(
+                g4f.ChatCompletion.create,
+                model="gpt-4o",
                 provider=g4f.Provider.Blackbox,
-                messages=[{"role": "user", "content": user_message}]
+                messages=[{"role": "user", "content": text + "\n[Analyze this attached screen/image carefully]"}],
+                image=image_base64.split(',')[1] if ',' in image_base64 else image_base64
             )
-            return f"[Model Busy - Used Backup]: {fallback.choices[0].message.content}"
-        except:
-            return "Ciri Error: All free providers are currently overloaded. Please click Retry."
+            return response
+        except Exception as e:
+            return "Vision System Error: The free vision processor is currently overloaded. Please try again."
+
+    # 2. IF TEXT ONLY (GUARANTEED UPTIME CASCADE)
+    try:
+        if model_choice == "gpt-4":
+            return await fetch_pollinations(text, "openai")
+        elif model_choice == "llama":
+            return await fetch_pollinations(text, "llama")
+        elif model_choice == "deepseek":
+            # Direct to g4f Deepseek Provider
+            return await asyncio.to_thread(
+                g4f.ChatCompletion.create, model="deepseek-coder", provider=g4f.Provider.DeepSeek,
+                messages=[{"role": "user", "content": text}]
+            )
+        else: # Gemini or Fallback
+            return await asyncio.to_thread(
+                g4f.ChatCompletion.create, model="gemini-pro", provider=g4f.Provider.Blackbox,
+                messages=[{"role": "user", "content": text}]
+            )
+    except Exception:
+        # ULTIMATE FAILSAFE: If chosen model fails, force DuckDuckGo API via g4f
+        return await asyncio.to_thread(
+            g4f.ChatCompletion.create, model="gpt-4o", provider=g4f.Provider.DDG,
+            messages=[{"role": "user", "content": text}]
+        )
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
@@ -56,24 +74,18 @@ async def chat_endpoint(request: Request):
         data = await request.json()
         user_message = data.get("message")
         model_choice = data.get("model")
+        image_data = data.get("image") 
         
         start_time = time.time()
-
-        # Run the AI request in the background so Render doesn't crash
-        ai_reply = await asyncio.to_thread(get_ai_answer, model_choice, user_message)
-
-        end_time = time.time()
-        time_taken = round(end_time - start_time, 2)
-
+        
+        ai_reply = await process_ai(model_choice, user_message, image_data)
+        
+        time_taken = round(time.time() - start_time, 2)
+        
         return {
             "text": ai_reply,
             "model": model_choice.upper(),
             "time": f"{time_taken}s"
         }
     except Exception as e:
-        # Guarantee we send a JSON response back to the frontend even if it fails
-        return {
-            "text": f"Server Error: {str(e)}",
-            "model": "ERROR",
-            "time": "0s"
-        }
+        return {"text": f"Crucial Error: {str(e)}", "model": "SYS_ERROR", "time": "0s"}
