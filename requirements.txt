@@ -1,4 +1,5 @@
 fastapi
 uvicorn
-g4f[all]
+g4f
+curl_cffi
 python-multipart
