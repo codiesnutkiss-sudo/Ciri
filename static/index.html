@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ciri Cloud AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: white; font-family: sans-serif; }
+        .glow-box {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
+            animation: fadeIn 0.4s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: #38bdf8; border-radius: 4px; }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4 md:p-10">
+
+    <!-- Header & Controls -->
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-4xl font-bold text-sky-400 drop-shadow-[0_0_10px_rgba(56,189,248,0.8)]">CIRI</h1>
+        <div class="flex gap-4">
+            <select id="model-select" class="bg-slate-800 border border-sky-400 text-white rounded px-4 py-2 outline-none">
+                <option value="deepseek">DeepSeek</option>
+                <option value="llama">Llama 3</option>
+                <option value="gpt-4">ChatGPT (GPT-4)</option>
+                <option value="gemini">Gemini</option>
+            </select>
+            <button id="live-btn" onclick="toggleLiveMode()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-[0_0_10px_rgba(239,68,68,0.6)] transition-all">Enable Live Mode</button>
+        </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div id="chat-box" class="flex-1 overflow-y-auto space-y-4 mb-6 pr-2">
+        <!-- Messages will appear here -->
+    </div>
+
+    <!-- Input Area -->
+    <div class="flex gap-3">
+        <input type="file" id="image-upload" accept="image/*" class="hidden">
+        <button onclick="document.getElementById('image-upload').click()" class="bg-slate-800 border border-slate-600 px-4 py-3 rounded hover:bg-slate-700">📷</button>
+        <input type="text" id="user-input" placeholder="Message Ciri... (Type 'grhe' to test instant translation)" class="flex-1 bg-slate-800 border border-slate-600 rounded px-4 py-3 text-white outline-none focus:border-sky-400 transition-colors">
+        <button onclick="sendMessage()" class="bg-sky-500 hover:bg-sky-400 px-6 py-3 rounded font-bold text-slate-900 transition-colors">SEND</button>
+    </div>
+
+    <!-- Hidden Video element for Live Mode Screen Capture -->
+    <video id="screen-video" autoplay class="hidden"></video>
+    <canvas id="screen-canvas" class="hidden"></canvas>
+
+    <script>
+        const chatBox = document.getElementById('chat-box');
+        const userInput = document.getElementById('user-input');
+        const modelSelect = document.getElementById('model-select');
+        let isLiveMode = false;
+        let screenStream = null;
+
+        // INSTANT TRANSLATION LOGIC
+        // The millisecond "grhe" is typed, it changes to a translated phrase.
+        const dictionary = { "grhe": "Hello Ciri, please analyze my screen." };
+        
+        userInput.addEventListener('input', (e) => {
+            let text = e.target.value;
+            for (const [slang, translation] of Object.entries(dictionary)) {
+                if (text.includes(slang)) {
+                    userInput.value = text.replace(slang, translation);
+                }
+            }
+        });
+
+        // LIVE MODE (Screen Vision) LOGIC
+        async function toggleLiveMode() {
+            const btn = document.getElementById('live-btn');
+            if (!isLiveMode) {
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                    document.getElementById('screen-video').srcObject = screenStream;
+                    isLiveMode = true;
+                    btn.textContent = "🔴 Live Mode Active";
+                    btn.classList.replace('bg-red-500', 'bg-green-500');
+                } catch (err) { alert("Screen share denied."); }
+            } else {
+                screenStream.getTracks().forEach(track => track.stop());
+                isLiveMode = false;
+                btn.textContent = "Enable Live Mode";
+                btn.classList.replace('bg-green-500', 'bg-red-500');
+            }
+        }
+
+        function captureScreenBase64() {
+            if (!isLiveMode) return null;
+            const video = document.getElementById('screen-video');
+            const canvas = document.getElementById('screen-canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            return canvas.toDataURL('image/jpeg', 0.5); // returns base64 image
+        }
+
+        // SEND MESSAGE LOGIC
+        async function sendMessage(retryText = null, retryModel = null) {
+            const text = retryText || userInput.value.trim();
+            if (!text) return;
+            
+            const model = retryModel || modelSelect.value;
+            userInput.value = '';
+
+            // 1. Add User Message to UI
+            if (!retryText) appendMessage(text, 'user');
+
+            // 2. Grab Live Mode frame if active
+            const imageData = captureScreenBase64();
+
+            // 3. Create AI Loading Message
+            const aiMsgId = 'msg-' + Date.now();
+            appendMessage("Thinking...", 'ai', aiMsgId);
+
+            // 4. Send to Backend
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, model: model, image: imageData })
+                });
+                
+                const data = await response.json();
+                
+                // 5. Update UI with AI Response and cool metadata
+                updateAIMessage(aiMsgId, data.text, data.model, data.time, text);
+            } catch (error) {
+                updateAIMessage(aiMsgId, "Network error. Make sure the backend is running.", model, "0s", text);
+            }
+        }
+
+        // UI HELPERS
+        function appendMessage(text, sender, id = null) {
+            const div = document.createElement('div');
+            if (id) div.id = id;
+            div.className = sender === 'user' 
+                ? 'p-4 bg-sky-600 text-white rounded-2xl rounded-br-none ml-auto max-w-[80%] shadow-lg' 
+                : 'p-5 glow-box rounded-2xl rounded-bl-none mr-auto w-full';
+            div.innerText = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function updateAIMessage(id, text, model, time, originalText) {
+            const div = document.getElementById(id);
+            div.innerHTML = `
+                <div class="text-sm md:text-base leading-relaxed">${text}</div>
+                <div class="mt-4 flex items-center gap-4 text-xs font-mono text-slate-400 border-t border-slate-700 pt-3">
+                    <span class="text-sky-400 font-bold">MODEL: ${model}</span>
+                    <span class="text-green-400">LATENCY: ${time}</span>
+                    <button onclick="sendMessage('${originalText}', '${model}')" class="text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        RETRY
+                    </button>
+                </div>
+            `;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
