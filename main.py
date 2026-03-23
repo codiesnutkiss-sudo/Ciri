@@ -4,69 +4,85 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 import g4f
+from g4f.client import Client
 import time
 import asyncio
 import urllib.parse
+import nest_asyncio
+
+# Prevent async loop crashes on Render
+nest_asyncio.apply()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Initialize the smart client (handles broken providers automatically)
+g4f_client = Client()
+
 @app.get("/")
 async def root():
     return FileResponse("static/index.html")
 
-# 100% UPTIME DIRECT APIs (No g4f scraping required for these)
-async def fetch_pollinations(prompt: str, model: str):
-    # Models: 'openai' (GPT-4), 'llama' (Llama 3)
+# 100% UPTIME DIRECT API (Bypasses g4f completely)
+async def process_text_pollinations(prompt: str, model: str):
     encoded_prompt = urllib.parse.quote(prompt)
     url = f"https://text.pollinations.ai/prompt/{encoded_prompt}?model={model}"
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url)
         if response.status_code == 200:
             return response.text
-        raise Exception("Pollinations busy")
+        raise Exception("Direct API busy")
 
-# REAL VISION & FALLBACK PROCESSING
 async def process_ai(model_choice: str, text: str, image_base64: str = None):
-    # 1. IF THERE IS AN IMAGE (LIVE MODE / UPLOAD)
+    # 1. VISION MODE (If image is sent via Live Mode or Upload)
     if image_base64:
         try:
-            # Blackbox is the most reliable free vision provider in g4f
+            # We use the standard OpenAI payload format. 
+            # The g4f client will automatically route this to Bing/Gemini Vision.
             response = await asyncio.to_thread(
-                g4f.ChatCompletion.create,
+                g4f_client.chat.completions.create,
                 model="gpt-4o",
-                provider=g4f.Provider.Blackbox,
-                messages=[{"role": "user", "content": text + "\n[Analyze this attached screen/image carefully]"}],
-                image=image_base64.split(',')[1] if ',' in image_base64 else image_base64
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": text + "\n[System: Analyze this attached image/screen carefully.]"},
+                        {"type": "image_url", "image_url": {"url": image_base64}}
+                    ]
+                }]
             )
-            return response
+            return response.choices[0].message.content
         except Exception as e:
-            return "Vision System Error: The free vision processor is currently overloaded. Please try again."
+            return f"Vision System Error: Ensure your screen isn't completely black. Details: {str(e)}"
 
-    # 2. IF TEXT ONLY (GUARANTEED UPTIME CASCADE)
+    # 2. TEXT MODE (Guaranteed cascade)
     try:
         if model_choice == "gpt-4":
-            return await fetch_pollinations(text, "openai")
+            return await process_text_pollinations(text, "openai")
         elif model_choice == "llama":
-            return await fetch_pollinations(text, "llama")
+            return await process_text_pollinations(text, "llama")
         elif model_choice == "deepseek":
-            # Direct to g4f Deepseek Provider
-            return await asyncio.to_thread(
-                g4f.ChatCompletion.create, model="deepseek-coder", provider=g4f.Provider.DeepSeek,
+            # Let the smart client find a working Deepseek provider
+            res = await asyncio.to_thread(
+                g4f_client.chat.completions.create,
+                model="deepseek-coder",
                 messages=[{"role": "user", "content": text}]
             )
-        else: # Gemini or Fallback
-            return await asyncio.to_thread(
-                g4f.ChatCompletion.create, model="gemini-pro", provider=g4f.Provider.Blackbox,
+            return res.choices[0].message.content
+        elif model_choice == "gemini":
+            # Let the smart client find a working Gemini provider
+            res = await asyncio.to_thread(
+                g4f_client.chat.completions.create,
+                model="gemini-pro",
                 messages=[{"role": "user", "content": text}]
             )
-    except Exception:
-        # ULTIMATE FAILSAFE: If chosen model fails, force DuckDuckGo API via g4f
-        return await asyncio.to_thread(
-            g4f.ChatCompletion.create, model="gpt-4o", provider=g4f.Provider.DDG,
-            messages=[{"role": "user", "content": text}]
-        )
+            return res.choices[0].message.content
+    except Exception as e:
+        # ULTIMATE FALLBACK: If g4f models fail, fallback to a guaranteed search model
+        try:
+            return f"[Used Backup Model]: " + await process_text_pollinations(text, "search")
+        except:
+            return "Crucial Error: All systems currently overloaded. Please retry in 10 seconds."
 
 @app.post("/chat")
 async def chat_endpoint(request: Request):
