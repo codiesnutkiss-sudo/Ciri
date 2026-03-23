@@ -1,6 +1,4 @@
 fastapi
 uvicorn
-g4f
 httpx
-nest_asyncio
 python-multipart
