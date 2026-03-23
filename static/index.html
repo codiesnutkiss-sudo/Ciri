@@ -5,35 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ciri | Cloud AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Markdown Parser for beautiful text -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        /* Modern Minimalist Palette */
         body { margin: 0; padding: 0; background-color: #0a0a0c; color: #ffffff; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; }
-        
-        /* Your Repel Grid Canvas strictly in background */
         #gridCanvas { position: fixed; top: 0; left: 0; z-index: 0; pointer-events: auto; }
-        
-        /* UI Wrapper - Lets mouse pass through empty spaces to interact with grid */
         #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; flex-direction: column; pointer-events: none; }
-        
-        /* Make UI elements catch the mouse */
         .interactive { pointer-events: auto; }
-
-        /* Sleek Animations */
         @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .msg-animate { animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
-        
-        /* Glass/Minimal Panels */
         .glass-panel { background: rgba(16, 16, 18, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); }
         .user-msg { background: #ffffff; color: #0a0a0c; border-radius: 16px 16px 4px 16px; }
         .ai-msg { background: transparent; border-left: 2px solid #ffffff; padding-left: 1rem; color: #e0e0e0; }
-        
-        /* Scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-
-        /* Markdown Styles */
         .prose pre { background: #111; padding: 12px; border-radius: 8px; border: 1px solid #333; overflow-x: auto; margin-top: 8px;}
         .prose code { font-family: monospace; color: #ccc; }
         .prose p { margin-bottom: 8px; }
@@ -41,16 +25,11 @@
 </head>
 <body>
 
-<!-- THE USER'S REPEL GRID BACKGROUND -->
 <canvas id="gridCanvas"></canvas>
 
-<!-- THE UI LAYER -->
 <div id="ui-layer" class="p-4 md:p-8">
-    
-    <!-- Top Nav -->
     <div class="interactive glass-panel rounded-2xl p-4 mb-6 flex justify-between items-center shadow-2xl">
         <h1 class="text-2xl font-black tracking-tighter text-white">CIRI <span class="text-gray-500 font-normal">CLOUD</span></h1>
-        
         <div class="flex gap-3">
             <select id="model-select" class="bg-[#111] text-white text-sm px-4 py-2 rounded-lg border border-gray-800 outline-none focus:border-white transition-colors cursor-pointer">
                 <option value="gpt-4">GPT-4o (Stable)</option>
@@ -64,31 +43,25 @@
         </div>
     </div>
 
-    <!-- Chat Area -->
     <div id="chat-box" class="interactive flex-1 overflow-y-auto space-y-6 mb-6 px-2 pb-4"></div>
 
-    <!-- Live Preview Box (Hidden by default) -->
     <div id="live-preview-container" class="interactive hidden mb-4 flex items-center gap-4 glass-panel p-2 rounded-xl w-max">
         <video id="screen-video" autoplay muted class="w-32 rounded-lg border border-gray-700"></video>
         <span class="text-xs text-gray-400 font-mono pr-4 animate-pulse">Capturing frames for analysis...</span>
         <canvas id="screen-canvas" class="hidden"></canvas>
     </div>
 
-    <!-- Input Area -->
     <div class="interactive glass-panel rounded-2xl p-2 flex gap-2 items-center">
         <button onclick="document.getElementById('image-upload').click()" class="p-3 text-gray-400 hover:text-white transition-colors">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
         </button>
         <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
-        
         <input type="text" id="user-input" placeholder="Message Ciri... (Try typing 'grhe')" class="flex-1 bg-transparent text-white px-2 py-3 outline-none text-sm placeholder-gray-600" onkeypress="if(event.key === 'Enter') sendMessage()">
-        
         <button onclick="sendMessage()" class="bg-white text-black px-6 py-3 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors">Send</button>
     </div>
 </div>
 
 <script>
-  // --- USER'S EXACT BACKGROUND SCRIPT ---
   const canvas = document.getElementById('gridCanvas');
   const ctx = canvas.getContext('2d');
   canvas.width = window.innerWidth;
@@ -106,9 +79,7 @@
       this.baseX = x; this.baseY = y; this.x = x; this.y = y; this.size = 1.2;
       this.maxDisplacement = spacing * 0.6; 
     }
-    draw(opacity, color) {
-      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
-    }
+    draw(opacity, color) { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); }
     update() {
       let targetX = this.baseX; let targetY = this.baseY;
       let opacity = 0.2; let color = `rgba(150, 150, 170, ${opacity})`;
@@ -116,11 +87,10 @@
         let dx = this.baseX - mouse.x; let dy = this.baseY - mouse.y;
         let distance = Math.sqrt(dx * dx + dy * dy);
         if (distance < mouse.radius) {
-          let force = (mouse.radius - distance) / mouse.radius;
-          let angle = Math.atan2(dy, dx);
+          let force = (mouse.radius - distance) / mouse.radius; let angle = Math.atan2(dy, dx);
           targetX = this.baseX + Math.cos(angle) * (force * this.maxDisplacement);
           targetY = this.baseY + Math.sin(angle) * (force * this.maxDisplacement);
-          opacity = 0.2 + (force * 0.8); color = `rgba(255, 255, 255, ${opacity})`; // Changed to white for modern look
+          opacity = 0.2 + (force * 0.8); color = `rgba(255, 255, 255, ${opacity})`;
         }
       }
       this.x += (targetX - this.x) * 0.15; this.y += (targetY - this.y) * 0.15;
@@ -133,28 +103,19 @@
       for (let x = -spacing; x < canvas.width + spacing; x += spacing) { dots.push(new Dot(x, y)); }
     }
   }
-  function animate() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    for (let i = 0; i < dots.length; i++) { dots[i].update(); }
-    requestAnimationFrame(animate);
-  }
+  function animate() { ctx.clearRect(0, 0, canvas.width, canvas.height); for (let i = 0; i < dots.length; i++) { dots[i].update(); } requestAnimationFrame(animate); }
   init(); animate();
 
-  // --- CIRI AI LOGIC ---
   const chatBox = document.getElementById('chat-box');
   const userInput = document.getElementById('user-input');
   let isLiveMode = false;
   let screenStream = null;
   let uploadedImageBase64 = null;
 
-  // Instant Translation
   userInput.addEventListener('input', (e) => {
-      if (e.target.value.includes("grhe")) {
-          userInput.value = e.target.value.replace("grhe", "Analyze the data on my screen.");
-      }
+      if (e.target.value.includes("grhe")) userInput.value = e.target.value.replace("grhe", "Analyze the data on my screen.");
   });
 
-  // Handle Static Image Upload
   function handleImageUpload(event) {
       const file = event.target.files[0];
       if (file) {
@@ -164,7 +125,6 @@
       }
   }
 
-  // Live Vision Toggle
   async function toggleLiveMode() {
       const btn = document.getElementById('live-btn');
       const dot = document.getElementById('live-dot');
@@ -189,19 +149,24 @@
   function getFrame() {
       if (uploadedImageBase64) {
           let temp = uploadedImageBase64;
-          uploadedImageBase64 = null; // Clear after use
+          uploadedImageBase64 = null; 
           return temp;
       }
       if (!isLiveMode) return null;
+      
       const video = document.getElementById('screen-video');
       const canvas = document.getElementById('screen-canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      
+      // CRITICAL FIX: Downscale the image to prevent "Payload Too Large" crashes
+      const MAX_WIDTH = 800;
+      const scale = MAX_WIDTH / (video.videoWidth || 800);
+      canvas.width = MAX_WIDTH;
+      canvas.height = (video.videoHeight || 600) * scale;
+      
       canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/jpeg', 0.5);
+      return canvas.toDataURL('image/jpeg', 0.4); // Compresses the image safely
   }
 
-  // Messaging Logic
   async function sendMessage(retryText = null, retryModel = null) {
       const text = retryText || userInput.value.trim();
       if (!text) return;
@@ -246,7 +211,6 @@
 
   function updateAIMessage(id, text, model, time, origText) {
       const div = document.getElementById(id);
-      // Use marked.js to render beautiful text formatting
       const formattedText = marked.parse(text);
       
       div.innerHTML = `
