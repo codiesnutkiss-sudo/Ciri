@@ -3,167 +3,264 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ciri Cloud AI</title>
+    <title>Ciri | Cloud AI</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Markdown Parser for beautiful text -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        body { background-color: #0f172a; color: white; font-family: sans-serif; }
-        .glow-box {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(56, 189, 248, 0.3);
-            box-shadow: 0 0 15px rgba(56, 189, 248, 0.1);
-            animation: fadeIn 0.4s ease-out;
-        }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; }
-        ::-webkit-scrollbar-thumb { background: #38bdf8; border-radius: 4px; }
+        /* Modern Minimalist Palette */
+        body { margin: 0; padding: 0; background-color: #0a0a0c; color: #ffffff; font-family: 'Inter', -apple-system, sans-serif; overflow: hidden; }
+        
+        /* Your Repel Grid Canvas strictly in background */
+        #gridCanvas { position: fixed; top: 0; left: 0; z-index: 0; pointer-events: auto; }
+        
+        /* UI Wrapper - Lets mouse pass through empty spaces to interact with grid */
+        #ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; display: flex; flex-direction: column; pointer-events: none; }
+        
+        /* Make UI elements catch the mouse */
+        .interactive { pointer-events: auto; }
+
+        /* Sleek Animations */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .msg-animate { animation: slideUp 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+        
+        /* Glass/Minimal Panels */
+        .glass-panel { background: rgba(16, 16, 18, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); }
+        .user-msg { background: #ffffff; color: #0a0a0c; border-radius: 16px 16px 4px 16px; }
+        .ai-msg { background: transparent; border-left: 2px solid #ffffff; padding-left: 1rem; color: #e0e0e0; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+        /* Markdown Styles */
+        .prose pre { background: #111; padding: 12px; border-radius: 8px; border: 1px solid #333; overflow-x: auto; margin-top: 8px;}
+        .prose code { font-family: monospace; color: #ccc; }
+        .prose p { margin-bottom: 8px; }
     </style>
 </head>
-<body class="h-screen flex flex-col p-4 md:p-10">
+<body>
 
-    <!-- Header & Controls -->
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-4xl font-bold text-sky-400 drop-shadow-[0_0_10px_rgba(56,189,248,0.8)]">CIRI</h1>
-        <div class="flex gap-4">
-            <select id="model-select" class="bg-slate-800 border border-sky-400 text-white rounded px-4 py-2 outline-none">
+<!-- THE USER'S REPEL GRID BACKGROUND -->
+<canvas id="gridCanvas"></canvas>
+
+<!-- THE UI LAYER -->
+<div id="ui-layer" class="p-4 md:p-8">
+    
+    <!-- Top Nav -->
+    <div class="interactive glass-panel rounded-2xl p-4 mb-6 flex justify-between items-center shadow-2xl">
+        <h1 class="text-2xl font-black tracking-tighter text-white">CIRI <span class="text-gray-500 font-normal">CLOUD</span></h1>
+        
+        <div class="flex gap-3">
+            <select id="model-select" class="bg-[#111] text-white text-sm px-4 py-2 rounded-lg border border-gray-800 outline-none focus:border-white transition-colors cursor-pointer">
+                <option value="gpt-4">GPT-4o (Stable)</option>
+                <option value="llama">Llama 3 (Stable)</option>
                 <option value="deepseek">DeepSeek</option>
-                <option value="llama">Llama 3</option>
-                <option value="gpt-4">ChatGPT (GPT-4)</option>
-                <option value="gemini">Gemini</option>
+                <option value="gemini">Gemini Pro</option>
             </select>
-            <button id="live-btn" onclick="toggleLiveMode()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded shadow-[0_0_10px_rgba(239,68,68,0.6)] transition-all">Enable Live Mode</button>
+            <button id="live-btn" onclick="toggleLiveMode()" class="bg-white text-black px-4 py-2 text-sm font-bold rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2">
+                <span id="live-dot" class="w-2 h-2 rounded-full bg-black"></span> Live Vision
+            </button>
         </div>
     </div>
 
     <!-- Chat Area -->
-    <div id="chat-box" class="flex-1 overflow-y-auto space-y-4 mb-6 pr-2">
-        <!-- Messages will appear here -->
+    <div id="chat-box" class="interactive flex-1 overflow-y-auto space-y-6 mb-6 px-2 pb-4"></div>
+
+    <!-- Live Preview Box (Hidden by default) -->
+    <div id="live-preview-container" class="interactive hidden mb-4 flex items-center gap-4 glass-panel p-2 rounded-xl w-max">
+        <video id="screen-video" autoplay muted class="w-32 rounded-lg border border-gray-700"></video>
+        <span class="text-xs text-gray-400 font-mono pr-4 animate-pulse">Capturing frames for analysis...</span>
+        <canvas id="screen-canvas" class="hidden"></canvas>
     </div>
 
     <!-- Input Area -->
-    <div class="flex gap-3">
-        <input type="file" id="image-upload" accept="image/*" class="hidden">
-        <button onclick="document.getElementById('image-upload').click()" class="bg-slate-800 border border-slate-600 px-4 py-3 rounded hover:bg-slate-700">📷</button>
-        <input type="text" id="user-input" placeholder="Message Ciri... (Type 'grhe' to test instant translation)" class="flex-1 bg-slate-800 border border-slate-600 rounded px-4 py-3 text-white outline-none focus:border-sky-400 transition-colors">
-        <button onclick="sendMessage()" class="bg-sky-500 hover:bg-sky-400 px-6 py-3 rounded font-bold text-slate-900 transition-colors">SEND</button>
-    </div>
-
-    <!-- Hidden Video element for Live Mode Screen Capture -->
-    <video id="screen-video" autoplay class="hidden"></video>
-    <canvas id="screen-canvas" class="hidden"></canvas>
-
-    <script>
-        const chatBox = document.getElementById('chat-box');
-        const userInput = document.getElementById('user-input');
-        const modelSelect = document.getElementById('model-select');
-        let isLiveMode = false;
-        let screenStream = null;
-
-        // INSTANT TRANSLATION LOGIC
-        // The millisecond "grhe" is typed, it changes to a translated phrase.
-        const dictionary = { "grhe": "Hello Ciri, please analyze my screen." };
+    <div class="interactive glass-panel rounded-2xl p-2 flex gap-2 items-center">
+        <button onclick="document.getElementById('image-upload').click()" class="p-3 text-gray-400 hover:text-white transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </button>
+        <input type="file" id="image-upload" accept="image/*" class="hidden" onchange="handleImageUpload(event)">
         
-        userInput.addEventListener('input', (e) => {
-            let text = e.target.value;
-            for (const [slang, translation] of Object.entries(dictionary)) {
-                if (text.includes(slang)) {
-                    userInput.value = text.replace(slang, translation);
-                }
-            }
-        });
+        <input type="text" id="user-input" placeholder="Message Ciri... (Try typing 'grhe')" class="flex-1 bg-transparent text-white px-2 py-3 outline-none text-sm placeholder-gray-600" onkeypress="if(event.key === 'Enter') sendMessage()">
+        
+        <button onclick="sendMessage()" class="bg-white text-black px-6 py-3 rounded-xl text-sm font-bold hover:bg-gray-200 transition-colors">Send</button>
+    </div>
+</div>
 
-        // LIVE MODE (Screen Vision) LOGIC
-        async function toggleLiveMode() {
-            const btn = document.getElementById('live-btn');
-            if (!isLiveMode) {
-                try {
-                    screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-                    document.getElementById('screen-video').srcObject = screenStream;
-                    isLiveMode = true;
-                    btn.textContent = "🔴 Live Mode Active";
-                    btn.classList.replace('bg-red-500', 'bg-green-500');
-                } catch (err) { alert("Screen share denied."); }
-            } else {
-                screenStream.getTracks().forEach(track => track.stop());
-                isLiveMode = false;
-                btn.textContent = "Enable Live Mode";
-                btn.classList.replace('bg-green-500', 'bg-red-500');
-            }
+<script>
+  // --- USER'S EXACT BACKGROUND SCRIPT ---
+  const canvas = document.getElementById('gridCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  let dots = [];
+  const spacing = 35; 
+  const mouse = { x: null, y: null, radius: 70 };
+
+  window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+  window.addEventListener('mouseout', () => { mouse.x = null; mouse.y = null; });
+  window.addEventListener('resize', () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; init(); });
+
+  class Dot {
+    constructor(x, y) {
+      this.baseX = x; this.baseY = y; this.x = x; this.y = y; this.size = 1.2;
+      this.maxDisplacement = spacing * 0.6; 
+    }
+    draw(opacity, color) {
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+    }
+    update() {
+      let targetX = this.baseX; let targetY = this.baseY;
+      let opacity = 0.2; let color = `rgba(150, 150, 170, ${opacity})`;
+      if (mouse.x !== null) {
+        let dx = this.baseX - mouse.x; let dy = this.baseY - mouse.y;
+        let distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance < mouse.radius) {
+          let force = (mouse.radius - distance) / mouse.radius;
+          let angle = Math.atan2(dy, dx);
+          targetX = this.baseX + Math.cos(angle) * (force * this.maxDisplacement);
+          targetY = this.baseY + Math.sin(angle) * (force * this.maxDisplacement);
+          opacity = 0.2 + (force * 0.8); color = `rgba(255, 255, 255, ${opacity})`; // Changed to white for modern look
         }
+      }
+      this.x += (targetX - this.x) * 0.15; this.y += (targetY - this.y) * 0.15;
+      this.draw(opacity, color);
+    }
+  }
+  function init() {
+    dots = [];
+    for (let y = -spacing; y < canvas.height + spacing; y += spacing) {
+      for (let x = -spacing; x < canvas.width + spacing; x += spacing) { dots.push(new Dot(x, y)); }
+    }
+  }
+  function animate() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < dots.length; i++) { dots[i].update(); }
+    requestAnimationFrame(animate);
+  }
+  init(); animate();
 
-        function captureScreenBase64() {
-            if (!isLiveMode) return null;
-            const video = document.getElementById('screen-video');
-            const canvas = document.getElementById('screen-canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-            return canvas.toDataURL('image/jpeg', 0.5); // returns base64 image
-        }
+  // --- CIRI AI LOGIC ---
+  const chatBox = document.getElementById('chat-box');
+  const userInput = document.getElementById('user-input');
+  let isLiveMode = false;
+  let screenStream = null;
+  let uploadedImageBase64 = null;
 
-        // SEND MESSAGE LOGIC
-        async function sendMessage(retryText = null, retryModel = null) {
-            const text = retryText || userInput.value.trim();
-            if (!text) return;
-            
-            const model = retryModel || modelSelect.value;
-            userInput.value = '';
+  // Instant Translation
+  userInput.addEventListener('input', (e) => {
+      if (e.target.value.includes("grhe")) {
+          userInput.value = e.target.value.replace("grhe", "Analyze the data on my screen.");
+      }
+  });
 
-            // 1. Add User Message to UI
-            if (!retryText) appendMessage(text, 'user');
+  // Handle Static Image Upload
+  function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => { uploadedImageBase64 = e.target.result; alert("Image attached to next message."); };
+          reader.readAsDataURL(file);
+      }
+  }
 
-            // 2. Grab Live Mode frame if active
-            const imageData = captureScreenBase64();
+  // Live Vision Toggle
+  async function toggleLiveMode() {
+      const btn = document.getElementById('live-btn');
+      const dot = document.getElementById('live-dot');
+      const preview = document.getElementById('live-preview-container');
+      
+      if (!isLiveMode) {
+          try {
+              screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+              document.getElementById('screen-video').srcObject = screenStream;
+              isLiveMode = true;
+              dot.className = "w-2 h-2 rounded-full bg-red-500 animate-pulse";
+              preview.classList.remove('hidden');
+          } catch (err) { alert("Screen share required for Live Vision."); }
+      } else {
+          screenStream.getTracks().forEach(track => track.stop());
+          isLiveMode = false;
+          dot.className = "w-2 h-2 rounded-full bg-black";
+          preview.classList.add('hidden');
+      }
+  }
 
-            // 3. Create AI Loading Message
-            const aiMsgId = 'msg-' + Date.now();
-            appendMessage("Thinking...", 'ai', aiMsgId);
+  function getFrame() {
+      if (uploadedImageBase64) {
+          let temp = uploadedImageBase64;
+          uploadedImageBase64 = null; // Clear after use
+          return temp;
+      }
+      if (!isLiveMode) return null;
+      const video = document.getElementById('screen-video');
+      const canvas = document.getElementById('screen-canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.5);
+  }
 
-            // 4. Send to Backend
-            try {
-                const response = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text, model: model, image: imageData })
-                });
-                
-                const data = await response.json();
-                
-                // 5. Update UI with AI Response and cool metadata
-                updateAIMessage(aiMsgId, data.text, data.model, data.time, text);
-            } catch (error) {
-                updateAIMessage(aiMsgId, "Network error. Make sure the backend is running.", model, "0s", text);
-            }
-        }
+  // Messaging Logic
+  async function sendMessage(retryText = null, retryModel = null) {
+      const text = retryText || userInput.value.trim();
+      if (!text) return;
+      
+      const model = retryModel || document.getElementById('model-select').value;
+      userInput.value = '';
 
-        // UI HELPERS
-        function appendMessage(text, sender, id = null) {
-            const div = document.createElement('div');
-            if (id) div.id = id;
-            div.className = sender === 'user' 
-                ? 'p-4 bg-sky-600 text-white rounded-2xl rounded-br-none ml-auto max-w-[80%] shadow-lg' 
-                : 'p-5 glow-box rounded-2xl rounded-bl-none mr-auto w-full';
-            div.innerText = text;
-            chatBox.appendChild(div);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+      if (!retryText) appendUserMessage(text);
+      const imgData = getFrame();
+      const aiMsgId = 'msg-' + Date.now();
+      appendAIMessage(aiMsgId);
 
-        function updateAIMessage(id, text, model, time, originalText) {
-            const div = document.getElementById(id);
-            div.innerHTML = `
-                <div class="text-sm md:text-base leading-relaxed">${text}</div>
-                <div class="mt-4 flex items-center gap-4 text-xs font-mono text-slate-400 border-t border-slate-700 pt-3">
-                    <span class="text-sky-400 font-bold">MODEL: ${model}</span>
-                    <span class="text-green-400">LATENCY: ${time}</span>
-                    <button onclick="sendMessage('${originalText}', '${model}')" class="text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1">
-                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                        RETRY
-                    </button>
-                </div>
-            `;
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-    </script>
+      try {
+          const res = await fetch('/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: text, model: model, image: imgData })
+          });
+          const data = await res.json();
+          updateAIMessage(aiMsgId, data.text, data.model, data.time, text);
+      } catch (e) {
+          updateAIMessage(aiMsgId, "Critical network failure.", model, "0s", text);
+      }
+  }
+
+  function appendUserMessage(text) {
+      const div = document.createElement('div');
+      div.className = 'msg-animate flex justify-end';
+      div.innerHTML = `<div class="user-msg p-4 max-w-[80%] text-sm shadow-xl">${text}</div>`;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function appendAIMessage(id) {
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = 'msg-animate flex justify-start mb-8';
+      div.innerHTML = `<div class="ai-msg max-w-[90%] text-sm"><span class="animate-pulse text-gray-500 font-mono text-xs">Processing...</span></div>`;
+      chatBox.appendChild(div);
+      chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  function updateAIMessage(id, text, model, time, origText) {
+      const div = document.getElementById(id);
+      // Use marked.js to render beautiful text formatting
+      const formattedText = marked.parse(text);
+      
+      div.innerHTML = `
+          <div class="ai-msg max-w-[90%] text-sm prose prose-invert">
+              ${formattedText}
+              <div class="mt-4 flex gap-4 text-[10px] uppercase tracking-widest text-gray-600 font-mono border-t border-gray-800 pt-2">
+                  <span class="text-white">${model}</span>
+                  <span>${time}</span>
+                  <button onclick="sendMessage('${origText.replace(/'/g, "\\'")}', '${model}')" class="hover:text-white transition-colors">↻ Retry</button>
+              </div>
+          </div>
+      `;
+      chatBox.scrollTop = chatBox.scrollHeight;
+  }
+</script>
 </body>
 </html>
